@@ -1,0 +1,2 @@
+# Resident management logic
+
