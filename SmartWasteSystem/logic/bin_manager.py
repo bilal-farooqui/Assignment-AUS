@@ -1,2 +1,0 @@
-# Bin management logic
-

@@ -1,0 +1,31 @@
+{
+    "residents": [
+        {
+            "resident_id": "R001",
+            "full_name": "bilal farooqui",
+            "address": "R-123,karachi",
+            "current_requests": []
+        },
+        {
+            "resident_id": "R002",
+            "full_name": "wasil",
+            "address": "A-213,karachi",
+            "current_requests": []
+        }
+    ],
+    "collectors": [],
+    "bins": [],
+    "routes": [],
+    "tasks": [],
+    "transactions": [
+        {
+            "transaction_id": "TX0001",
+            "payer_id": "R001",
+            "amount": 200.0,
+            "payment_date": "2026-01-28",
+            "service_type": "Collection",
+            "status": "Paid"
+        }
+    ],
+    "incidents": []
+}

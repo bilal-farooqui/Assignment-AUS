@@ -1,2 +1,0 @@
-# THE FACE (Visuals)
-
