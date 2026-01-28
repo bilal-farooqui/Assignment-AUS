@@ -1,2 +1,0 @@
-# Collector management logic
-
