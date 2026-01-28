@@ -13,10 +13,35 @@
             "current_requests": []
         }
     ],
-    "collectors": [],
+    "collectors": [
+        {
+            "collector_id": "C001",
+            "name": "wasil",
+            "vehicle_id": "A01"
+        }
+    ],
     "bins": [],
-    "routes": [],
-    "tasks": [],
+    "routes": [
+        {
+            "route_id": "RT01",
+            "zone_name": "jahur",
+            "stop_sequence": [
+                "Simulated Stop 1"
+            ],
+            "estimated_distance": 1.5,
+            "estimated_duration": 5.0
+        }
+    ],
+    "tasks": [
+        {
+            "task_id": "T001",
+            "description": "pickup",
+            "target_date": "2026-01-28",
+            "route_id": "RT01",
+            "assigned_collector_id": "C001",
+            "status": "Pending"
+        }
+    ],
     "transactions": [
         {
             "transaction_id": "TX0001",
