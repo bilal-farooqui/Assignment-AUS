@@ -18,6 +18,55 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
+# ==================== MODERN THEME ====================
+THEME = {
+    "bg_dark": "#0F172A",        # Slate 900 - sidebar, topbar, login
+    "bg_light": "#F8FAFC",       # Slate 50 - main content
+    "card_bg": "#FFFFFF",
+    "accent": "#0EA5E9",         # Sky 500
+    "accent_hover": "#0284C7",   # Sky 600
+    "resident": "#14B8A6",       # Teal 500
+    "resident_hover": "#0D9488",
+    "collector": "#F97316",      # Orange 500
+    "collector_hover": "#EA580C",
+    "management": "#8B5CF6",      # Violet 500
+    "management_hover": "#7C3AED",
+    "success": "#22C55E",        # Green 500
+    "success_hover": "#16A34A",
+    "warning": "#F59E0B",        # Amber 500
+    "danger": "#EF4444",         # Red 500
+    "danger_hover": "#DC2626",
+    "text_primary": "#0F172A",
+    "text_secondary": "#64748B",
+    "text_muted": "#94A3B8",
+    "border": "#E2E8F0",
+    "font_family": "Helvetica",
+    "font_title": ("Helvetica", 22, "bold"),
+    "font_subtitle": ("Helvetica", 12),
+    "font_body": ("Helvetica", 11),
+    "font_button": ("Helvetica", 12, "bold"),
+    "font_small": ("Helvetica", 10),
+}
+
+# Blue-theme Frame+Label button (shows color on macOS like login page)
+def make_blue_btn(parent, text, command, style="primary", font=None):
+    """style: primary (blue), success (blue), danger (red), secondary (light blue). Returns frame to pack."""
+    if style == "danger":
+        bg, fg = THEME["danger"], "white"
+    elif style == "secondary":
+        bg, fg = "#bae6fd", "#0369a1"
+    else:
+        bg, fg = THEME["accent"], "white"
+    font = font or THEME["font_small"]
+    f = tk.Frame(parent, bg=bg, padx=14, pady=8)
+    l = tk.Label(f, text=text, font=font, bg=bg, fg=fg)
+    l.pack()
+    for w in (f, l):
+        w.bind("<Button-1>", lambda e, c=command: c() if callable(c) else c)
+        w.bind("<Enter>", lambda e, w=f: w.configure(cursor="hand2"))
+        w.bind("<Leave>", lambda e, w=f: w.configure(cursor=""))
+    return f
+
 # ==================== VALIDATION FUNCTIONS ====================
 def validate_name(name):
     """Validate name - should contain only letters, spaces, and common punctuation"""
@@ -114,352 +163,283 @@ def validate_location(location):
     return True, ""
 
 # ==================== LOGIN WINDOW ====================
+def _hex_to_rgb(hex_color):
+    """Convert #RRGGBB to (r, g, b) tuple."""
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+def _interpolate_color(c1, c2, t):
+    """Blend between two (r,g,b) colors. t in 0..1."""
+    return (
+        int(c1[0] + (c2[0] - c1[0]) * t),
+        int(c1[1] + (c2[1] - c1[1]) * t),
+        int(c1[2] + (c2[2] - c1[2]) * t),
+    )
+
+
 class LoginWindow:
     def __init__(self, root, system):
         self.root = root
         self.system = system
         self.current_user = None
         self.user_type = None
-        
-        # Window Setup
+        self.selected_role = None
+        self.cred_frame = None
+        self.entries = {}
+
         self.root.title("SWMS - Login")
-        self.root.geometry("500x400")
-        self.root.resizable(True, True)  # Allow resizing
-        self.root.minsize(450, 350)  # Minimum size to prevent too small
-        
-        # Center window
-        self.center_window()
-        
-        # Color Scheme
-        self.bg_color = "#2C3E50"
-        self.accent_color = "#3498DB"
-        self.success_color = "#27AE60"
-        self.warning_color = "#E67E22"
-        self.text_color = "#ECF0F1"
-        
-        self.root.configure(bg=self.bg_color)
-        
-        # Main Frame
-        main_frame = tk.Frame(root, bg=self.bg_color)
-        main_frame.pack(expand=True, fill='both', padx=40, pady=40)
-        
-        # Title
-        title_label = tk.Label(
-            main_frame, 
+        self.root.geometry("560x520")
+        self.root.resizable(True, True)
+        self.root.minsize(500, 480)
+
+        # Glowy blue background (gradient: dark blue edges -> bright blue center)
+        self._blue_dark = "#0c4a6e"
+        self._blue_mid = "#0284c7"
+        self._blue_glow = "#38bdf8"
+        self.root.configure(bg=self._blue_dark)
+
+        self._canvas = tk.Canvas(
+            self.root,
+            highlightthickness=0,
+            bg=self._blue_dark,
+        )
+        self._canvas.pack(fill="both", expand=True)
+        self._canvas.bind("<Configure>", self._on_canvas_configure)
+
+        # Centered login box (embedded in canvas so it stays on top and centered)
+        box_width, box_height = 380, 420
+        self._box = tk.Frame(
+            self._canvas,
+            bg=THEME["card_bg"],
+            width=box_width,
+            height=box_height,
+            relief=tk.FLAT,
+        )
+        self._box.pack_propagate(False)
+        self._box_window_id = self._canvas.create_window(0, 0, window=self._box, anchor="center")
+
+        # Title inside box
+        tk.Label(
+            self._box,
             text="Smart Waste Management System",
-            font=("Arial", 20, "bold"),
-            bg=self.bg_color,
-            fg=self.text_color
-        )
-        title_label.pack(pady=(0, 30))
-        
-        # Subtitle
-        subtitle = tk.Label(
-            main_frame,
-            text="Please select your role to continue",
-            font=("Arial", 11),
-            bg=self.bg_color,
-            fg="#BDC3C7"
-        )
-        subtitle.pack(pady=(0, 40))
-        
-        # Role Selection Frame
-        role_frame = tk.Frame(main_frame, bg=self.bg_color)
-        role_frame.pack(pady=20)
-        
-        # Resident Button
-        self.btn_resident = tk.Button(
-            role_frame,
-            text="👤 Resident",
-            font=("Arial", 14, "bold"),
-            bg="#16A085",
+            font=("Helvetica", 16, "bold"),
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"],
+        ).pack(pady=(24, 8))
+
+        tk.Label(
+            self._box,
+            text="Sign in to continue",
+            font=THEME["font_small"],
+            bg=THEME["card_bg"],
+            fg=THEME["text_secondary"],
+        ).pack(pady=(0, 20))
+
+        # Role selection: Frame+Label "buttons" so blue color actually shows on macOS
+        self._role_btn_unselected_bg = "#7dd3fc"
+        self._role_btn_unselected_fg = "#0369a1"
+        role_frame = tk.Frame(self._box, bg=THEME["card_bg"])
+        role_frame.pack(fill="x", padx=28, pady=(0, 20))
+
+        def make_role_btn(parent, text, role):
+            f = tk.Frame(parent, bg=self._role_btn_unselected_bg, padx=16, pady=10)
+            l = tk.Label(f, text=text, font=THEME["font_small"], bg=self._role_btn_unselected_bg, fg=self._role_btn_unselected_fg)
+            l.pack()
+            for w in (f, l):
+                w.bind("<Button-1>", lambda e, r=role: self._select_role(r))
+                w.bind("<Enter>", lambda e, widget=f: widget.configure(cursor="hand2"))
+                w.bind("<Leave>", lambda e, widget=f: widget.configure(cursor=""))
+            return f, l
+
+        self._btn_resident_f, self._btn_resident_l = make_role_btn(role_frame, "Resident", "resident")
+        self._btn_resident_f.pack(side="left", padx=(0, 6))
+        self._btn_collector_f, self._btn_collector_l = make_role_btn(role_frame, "Collector", "collector")
+        self._btn_collector_f.pack(side="left", padx=6)
+        self._btn_management_f, self._btn_management_l = make_role_btn(role_frame, "Management", "management")
+        self._btn_management_f.pack(side="left", padx=6)
+
+        # Container for credential form (switches by role)
+        self._cred_container = tk.Frame(self._box, bg=THEME["card_bg"])
+        self._cred_container.pack(fill="both", expand=True, padx=28, pady=(0, 16))
+
+        # Sign in: Frame+Label so blue shows on macOS
+        self._login_btn_f = tk.Frame(self._box, bg=THEME["accent"], padx=32, pady=12)
+        self._login_btn_l = tk.Label(
+            self._login_btn_f,
+            text="Sign in",
+            font=THEME["font_button"],
+            bg=THEME["accent"],
             fg="white",
-            activebackground="#1ABC9C",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=30,
-            pady=15,
-            cursor="hand2",
-            command=lambda: self.login("resident")
         )
-        self.btn_resident.pack(pady=10, fill='x', padx=20)
-        
-        # Collector Button
-        self.btn_collector = tk.Button(
-            role_frame,
-            text="🚛 Collector",
-            font=("Arial", 14, "bold"),
-            bg="#E67E22",
-            fg="white",
-            activebackground="#F39C12",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=30,
-            pady=15,
-            cursor="hand2",
-            command=lambda: self.login("collector")
-        )
-        self.btn_collector.pack(pady=10, fill='x', padx=20)
-        
-        # Management Button
-        self.btn_management = tk.Button(
-            role_frame,
-            text="⚙️ Management",
-            font=("Arial", 14, "bold"),
-            bg="#8E44AD",
-            fg="white",
-            activebackground="#9B59B6",
-            activeforeground="white",
-            relief=tk.FLAT,
-            padx=30,
-            pady=15,
-            cursor="hand2",
-            command=lambda: self.login("management")
-        )
-        self.btn_management.pack(pady=10, fill='x', padx=20)
-        
-        # Info Label
-        info_label = tk.Label(
-            main_frame,
-            text="Select a role to access the system",
-            font=("Arial", 9),
-            bg=self.bg_color,
-            fg="#95A5A6"
-        )
-        info_label.pack(pady=(20, 0))
-    
+        self._login_btn_l.pack()
+        for w in (self._login_btn_f, self._login_btn_l):
+            w.bind("<Button-1>", lambda e: self._do_login())
+            w.bind("<Enter>", lambda e: self._login_btn_f.configure(cursor="hand2"))
+            w.bind("<Leave>", lambda e: self._login_btn_f.configure(cursor=""))
+        self._login_btn_f.pack(pady=(0, 28))
+
+        self.center_window()
+        self._select_role("resident")
+        self.root.after(100, self._on_canvas_configure)
+
+    def _on_canvas_configure(self, event=None):
+        """Draw glowy blue gradient and keep login box centered."""
+        w = self._canvas.winfo_width()
+        h = self._canvas.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+        self._canvas.delete("gradient")
+        c_dark = _hex_to_rgb(self._blue_dark)
+        c_glow = _hex_to_rgb(self._blue_glow)
+        steps = max(50, h // 3)
+        for i in range(steps):
+            t = i / (steps - 1)
+            if t < 0.5:
+                tt = t * 2
+                r, g, b = _interpolate_color(c_dark, c_glow, tt)
+            else:
+                tt = (t - 0.5) * 2
+                r, g, b = _interpolate_color(c_glow, c_dark, tt)
+            color = "#%02x%02x%02x" % (r, g, b)
+            y1, y2 = int(h * i / steps), int(h * (i + 1) / steps) + 1
+            self._canvas.create_rectangle(0, y1, w, y2, fill=color, outline=color, tags="gradient")
+        self._canvas.coords(self._box_window_id, w // 2, h // 2)
+
     def center_window(self):
-        """Center the window on screen"""
         self.root.update_idletasks()
         width = self.root.winfo_width()
         height = self.root.winfo_height()
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
-        self.root.geometry(f'{width}x{height}+{x}+{y}')
-    
-    def login(self, role):
-        """Handle login based on role"""
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _highlight_role_button(self, role):
+        for (f, l), r in [
+            ((self._btn_resident_f, self._btn_resident_l), "resident"),
+            ((self._btn_collector_f, self._btn_collector_l), "collector"),
+            ((self._btn_management_f, self._btn_management_l), "management"),
+        ]:
+            if r == role:
+                f.configure(bg=THEME["accent"])
+                l.configure(bg=THEME["accent"], fg="white")
+            else:
+                f.configure(bg=self._role_btn_unselected_bg)
+                l.configure(bg=self._role_btn_unselected_bg, fg=self._role_btn_unselected_fg)
+
+    def _select_role(self, role):
+        self.selected_role = role
         self.user_type = role
-        
+        self._highlight_role_button(role)
+        self.entries.clear()
+
+        for w in self._cred_container.winfo_children():
+            w.destroy()
+
+        cred_frame = tk.Frame(self._cred_container, bg=THEME["card_bg"])
+        cred_frame.pack(fill="both", expand=True)
+
         if role == "resident":
-            self.show_resident_selection()
+            tk.Label(
+                cred_frame,
+                text="Resident ID",
+                font=THEME["font_body"],
+                bg=THEME["card_bg"],
+                fg=THEME["text_primary"],
+            ).pack(anchor="w", pady=(0, 6))
+            e = tk.Entry(cred_frame, font=THEME["font_body"], width=32)
+            e.pack(fill="x", pady=(0, 16), ipady=8)
+            e.focus()
+            e.bind("<Return>", lambda ev: self._do_login())
+            self.entries["id"] = e
         elif role == "collector":
-            self.show_collector_selection()
-        else:  # management
-            self.show_management_login()
-    
-    def show_resident_selection(self):
-        """Show resident ID selection window"""
-        top = tk.Toplevel(self.root)
-        top.title("Resident Login")
-        top.geometry("400x250")
-        top.configure(bg="#2C3E50")
-        top.resizable(True, True)  # Allow resizing
-        top.minsize(350, 200)  # Minimum size
-        
-        # Center
-        top.update_idletasks()
-        x = (top.winfo_screenwidth() // 2) - (400 // 2)
-        y = (top.winfo_screenheight() // 2) - (250 // 2)
-        top.geometry(f'400x250+{x}+{y}')
-        
-        frame = tk.Frame(top, bg="#2C3E50")
-        frame.pack(expand=True, fill='both', padx=30, pady=30)
-        
-        tk.Label(
-            frame, 
-            text="Enter Resident ID",
-            font=("Arial", 16, "bold"),
-            bg="#2C3E50",
-            fg="white"
-        ).pack(pady=(0, 20))
-        
-        entry = tk.Entry(frame, font=("Arial", 12), width=20)
-        entry.pack(pady=10)
-        entry.focus()
-        
-        def submit():
-            res_id = entry.get().strip()
+            tk.Label(
+                cred_frame,
+                text="Collector ID",
+                font=THEME["font_body"],
+                bg=THEME["card_bg"],
+                fg=THEME["text_primary"],
+            ).pack(anchor="w", pady=(0, 6))
+            e = tk.Entry(cred_frame, font=THEME["font_body"], width=32)
+            e.pack(fill="x", pady=(0, 16), ipady=8)
+            e.focus()
+            e.bind("<Return>", lambda ev: self._do_login())
+            self.entries["id"] = e
+        else:
+            tk.Label(
+                cred_frame,
+                text="Username",
+                font=THEME["font_body"],
+                bg=THEME["card_bg"],
+                fg=THEME["text_primary"],
+            ).pack(anchor="w", pady=(0, 6))
+            e1 = tk.Entry(cred_frame, font=THEME["font_body"], width=32)
+            e1.pack(fill="x", pady=(0, 12), ipady=8)
+            e1.focus()
+            self.entries["username"] = e1
+
+            tk.Label(
+                cred_frame,
+                text="Password",
+                font=THEME["font_body"],
+                bg=THEME["card_bg"],
+                fg=THEME["text_primary"],
+            ).pack(anchor="w", pady=(0, 6))
+            e2 = tk.Entry(cred_frame, font=THEME["font_body"], width=32, show="*")
+            e2.pack(fill="x", pady=(0, 16), ipady=8)
+            self.entries["password"] = e2
+            e1.bind("<Return>", lambda ev: e2.focus())
+            e2.bind("<Return>", lambda ev: self._do_login())
+
+    def _do_login(self):
+        if not self.selected_role:
+            messagebox.showwarning("Select role", "Please select a role first.")
+            return
+
+        if self.selected_role == "resident":
+            res_id = self.entries.get("id") and self.entries["id"].get().strip()
+            if not res_id:
+                messagebox.showerror("Error", "Enter Resident ID.")
+                return
             resident = next((r for r in self.system.residents if r.resident_id == res_id), None)
             if resident:
                 self.current_user = resident
-                top.destroy()
                 self.open_main_app()
             else:
                 messagebox.showerror("Error", "Resident ID not found!")
-        
-        btn = tk.Button(
-            frame,
-            text="Login",
-            font=("Arial", 12, "bold"),
-            bg="#16A085",
-            fg="white",
-            activebackground="#1ABC9C",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            command=submit
-        )
-        btn.pack(pady=15)
-        
-        entry.bind('<Return>', lambda e: submit())
-    
-    def show_collector_selection(self):
-        """Show collector ID selection window"""
-        top = tk.Toplevel(self.root)
-        top.title("Collector Login")
-        top.geometry("400x250")
-        top.configure(bg="#2C3E50")
-        top.resizable(True, True)  # Allow resizing
-        top.minsize(350, 200)  # Minimum size
-        
-        # Center
-        top.update_idletasks()
-        x = (top.winfo_screenwidth() // 2) - (400 // 2)
-        y = (top.winfo_screenheight() // 2) - (250 // 2)
-        top.geometry(f'400x250+{x}+{y}')
-        
-        frame = tk.Frame(top, bg="#2C3E50")
-        frame.pack(expand=True, fill='both', padx=30, pady=30)
-        
-        tk.Label(
-            frame,
-            text="Enter Collector ID",
-            font=("Arial", 16, "bold"),
-            bg="#2C3E50",
-            fg="white"
-        ).pack(pady=(0, 20))
-        
-        entry = tk.Entry(frame, font=("Arial", 12), width=20)
-        entry.pack(pady=10)
-        entry.focus()
-        
-        def submit():
-            col_id = entry.get().strip()
+
+        elif self.selected_role == "collector":
+            col_id = self.entries.get("id") and self.entries["id"].get().strip()
+            if not col_id:
+                messagebox.showerror("Error", "Enter Collector ID.")
+                return
             collector = next((c for c in self.system.collectors if c.collector_id == col_id), None)
             if collector:
                 self.current_user = collector
-                top.destroy()
                 self.open_main_app()
             else:
                 messagebox.showerror("Error", "Collector ID not found!")
-        
-        btn = tk.Button(
-            frame,
-            text="Login",
-            font=("Arial", 12, "bold"),
-            bg="#E67E22",
-            fg="white",
-            activebackground="#F39C12",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            command=submit
-        )
-        btn.pack(pady=15)
-        
-        entry.bind('<Return>', lambda e: submit())
-    
-    def show_management_login(self):
-        """Show management login window with username and password"""
-        top = tk.Toplevel(self.root)
-        top.title("Management Login")
-        top.geometry("450x320")
-        top.configure(bg="#2C3E50")
-        top.resizable(True, True)  # Allow resizing
-        top.minsize(400, 280)  # Minimum size
-        
-        # Center
-        top.update_idletasks()
-        x = (top.winfo_screenwidth() // 2) - (450 // 2)
-        y = (top.winfo_screenheight() // 2) - (320 // 2)
-        top.geometry(f'450x320+{x}+{y}')
-        
-        frame = tk.Frame(top, bg="#2C3E50")
-        frame.pack(expand=True, fill='both', padx=30, pady=30)
-        
-        tk.Label(
-            frame,
-            text="Management Login",
-            font=("Arial", 18, "bold"),
-            bg="#2C3E50",
-            fg="white"
-        ).pack(pady=(0, 30))
-        
-        # Username
-        tk.Label(
-            frame,
-            text="Username:",
-            font=("Arial", 11),
-            bg="#2C3E50",
-            fg="#BDC3C7"
-        ).pack(anchor='w', pady=(0, 5))
-        
-        username_entry = tk.Entry(frame, font=("Arial", 12), width=25)
-        username_entry.pack(pady=(0, 15), fill='x')
-        username_entry.focus()
-        
-        # Password
-        tk.Label(
-            frame,
-            text="Password:",
-            font=("Arial", 11),
-            bg="#2C3E50",
-            fg="#BDC3C7"
-        ).pack(anchor='w', pady=(0, 5))
-        
-        password_entry = tk.Entry(frame, font=("Arial", 12), width=25, show="*")
-        password_entry.pack(pady=(0, 25), fill='x')
-        
-        # Management ID Info
-        mgt_info = self.system.get_management_info()
-        tk.Label(
-            frame,
-            text=f"Management ID: {mgt_info['management_id']}",
-            font=("Arial", 9),
-            bg="#2C3E50",
-            fg="#95A5A6"
-        ).pack(pady=(0, 10))
-        
-        def submit():
-            username = username_entry.get().strip()
-            password = password_entry.get().strip()
-            
+
+        else:
+            ue = self.entries.get("username")
+            pe = self.entries.get("password")
+            username = ue.get().strip() if ue else ""
+            password = pe.get().strip() if pe else ""
             if not username or not password:
-                messagebox.showerror("Error", "Please enter both username and password!")
+                messagebox.showerror("Error", "Please enter both username and password.")
                 return
-            
             if self.system.verify_management_login(username, password):
+                mgt_info = self.system.get_management_info()
                 self.current_user = {
-                    "management_id": mgt_info['management_id'],
+                    "management_id": mgt_info["management_id"],
                     "username": username,
-                    "name": "Management"
+                    "name": "Management",
                 }
-                top.destroy()
                 self.open_main_app()
             else:
-                messagebox.showerror("Error", "Invalid username or password!")
-                password_entry.delete(0, 'end')
-        
-        btn = tk.Button(
-            frame,
-            text="Login",
-            font=("Arial", 12, "bold"),
-            bg="#8E44AD",
-            fg="white",
-            activebackground="#9B59B6",
-            relief=tk.FLAT,
-            padx=30,
-            pady=10,
-            cursor="hand2",
-            command=submit
-        )
-        btn.pack(pady=10)
-        
-        # Bind Enter key
-        username_entry.bind('<Return>', lambda e: password_entry.focus())
-        password_entry.bind('<Return>', lambda e: submit())
-    
+                messagebox.showerror("Error", "Invalid username or password.")
+                if "password" in self.entries:
+                    self.entries["password"].delete(0, "end")
+
     def open_main_app(self):
         """Open main application window"""
         self.root.destroy()
@@ -480,15 +460,26 @@ class SWMS_GUI:
         self.root.geometry("1400x900")
         self.root.state('zoomed' if hasattr(self.root, 'state') else 'normal')
         
-        # Color Scheme
-        self.bg_color = "#ECF0F1"
-        self.sidebar_color = "#34495E"
-        self.accent_color = "#3498DB"
-        self.success_color = "#27AE60"
-        self.warning_color = "#E67E22"
-        self.danger_color = "#E74C3C"
+        # Blue theme (match login page)
+        self.bg_color = "#f0f9ff"   # sky-50
+        self.sidebar_color = "#0c4a6e"  # sky-900
+        self.accent_color = THEME["accent"]
+        self.success_color = THEME["accent"]   # blue for add/save
+        self.warning_color = "#0284c7"  # sky-600
+        self.danger_color = THEME["danger"]
         
         self.root.configure(bg=self.bg_color)
+        
+        # Modern ttk style (Notebook, Treeview)
+        try:
+            style = ttk.Style()
+            style.theme_use("clam")
+            style.configure("TNotebook", background=self.bg_color)
+            style.configure("TNotebook.Tab", padding=[16, 10], font=THEME["font_body"])
+            style.configure("Treeview", background=THEME["card_bg"], fieldbackground=THEME["card_bg"], foreground=THEME["text_primary"], rowheight=28)
+            style.configure("Treeview.Heading", background="#0c4a6e", foreground="white", font=THEME["font_small"])
+        except Exception:
+            pass
         
         # Create UI based on user type
         self.create_ui()
@@ -520,11 +511,10 @@ class SWMS_GUI:
     
     def create_topbar(self):
         """Create top navigation bar"""
-        topbar = tk.Frame(self.root, bg=self.sidebar_color, height=60)
+        topbar = tk.Frame(self.root, bg=self.sidebar_color, height=64)
         topbar.pack(fill='x')
         topbar.pack_propagate(False)
         
-        # Title
         if isinstance(self.current_user, dict):
             user_name = self.current_user.get("name", "Management")
         elif hasattr(self.current_user, 'full_name'):
@@ -536,98 +526,62 @@ class SWMS_GUI:
         
         title = tk.Label(
             topbar,
-            text=f"SWMS - Welcome, {user_name}",
-            font=("Arial", 16, "bold"),
+            text=f"SWMS · Welcome, {user_name}",
+            font=THEME["font_button"],
             bg=self.sidebar_color,
-            fg="white"
+            fg=THEME["card_bg"]
         )
-        title.pack(side='left', padx=20, pady=15)
+        title.pack(side='left', padx=24, pady=18)
         
-        # Logout Button (for all users)
-        logout_btn = tk.Button(
-            topbar,
-            text="🚪 Logout",
-            font=("Arial", 10, "bold"),
-            bg="#E74C3C",
-            fg="white",
-            activebackground="#C0392B",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.logout
-        )
-        logout_btn.pack(side='right', padx=10, pady=15)
+        logout_btn = make_blue_btn(topbar, "  Logout  ", self.logout, "danger")
+        logout_btn.pack(side='right', padx=12, pady=16)
         
-        # Role Badge
-        role_colors = {
-            "resident": "#16A085",
-            "collector": "#E67E22",
-            "management": "#8E44AD"
-        }
-        role_text = self.user_type.title()
         role_badge = tk.Label(
             topbar,
-            text=role_text,
-            font=("Arial", 10, "bold"),
-            bg=role_colors.get(self.user_type, "#7F8C8D"),
+            text=self.user_type.title(),
+            font=THEME["font_small"],
+            bg=THEME["accent"],
             fg="white",
-            padx=15,
-            pady=5
+            padx=14,
+            pady=6
         )
-        role_badge.pack(side='right', padx=10, pady=15)
+        role_badge.pack(side='right', padx=12, pady=16)
         
-        # Save Button (Management only)
         if self.user_type == "management":
-            save_btn = tk.Button(
-                topbar,
-                text="💾 Save Data",
-                font=("Arial", 10),
-                bg=self.success_color,
-                fg="white",
-                activebackground="#229954",
-                relief=tk.FLAT,
-                padx=15,
-                pady=5,
-                cursor="hand2",
-                command=self.save_data
-            )
-            save_btn.pack(side='right', padx=10, pady=15)
+            save_btn = make_blue_btn(topbar, "  Save Data  ", self.save_data, "primary")
+            save_btn.pack(side='right', padx=12, pady=16)
     
     def create_sidebar(self, parent):
         """Create sidebar navigation (Management only)"""
-        sidebar = tk.Frame(parent, bg=self.sidebar_color, width=200)
-        sidebar.pack(side='left', fill='y', padx=(10, 0), pady=10)
+        sidebar = tk.Frame(parent, bg=self.sidebar_color, width=220)
+        sidebar.pack(side='left', fill='y', padx=(12, 0), pady=12)
         sidebar.pack_propagate(False)
         
-        # Navigation buttons
         nav_items = [
-            ("📊 Dashboard", "dashboard"),
-            ("🗑️ Bins Locations", "bins_locations"),
-            ("⚠️ Incidents", "incidents"),
-            ("👥 Customers", "customers"),
-            ("💰 Customer Payments", "customer_payments"),
-            ("🚛 Collectors", "collectors"),
-            ("📍 Routes & Tasks", "tasks")
+            ("  📊  Dashboard", "dashboard"),
+            ("  🗑️  Bins", "bins_locations"),
+            ("  ⚠️  Incidents", "incidents"),
+            ("  👥  Customers", "customers"),
+            ("  💰  Payments", "customer_payments"),
+            ("  🚛  Collectors", "collectors"),
+            ("  📍  Routes & Tasks", "tasks")
         ]
         
         for text, tab_name in nav_items:
-            btn = tk.Button(
-                sidebar,
-                text=text,
-                font=("Arial", 11),
-                bg=self.sidebar_color,
-                fg="white",
-                activebackground="#2C3E50",
-                activeforeground="white",
-                relief=tk.FLAT,
-                anchor='w',
-                padx=20,
-                pady=12,
-                cursor="hand2",
-                command=lambda t=tab_name: self.show_tab(t)
-            )
-            btn.pack(fill='x', padx=5, pady=2)
+            f = tk.Frame(sidebar, bg=self.sidebar_color, padx=20, pady=14)
+            l = tk.Label(f, text=text, font=THEME["font_body"], bg=self.sidebar_color, fg="#e0f2fe")
+            l.pack(anchor='w')
+            def _on_enter(ev, frame=f, lbl=l):
+                frame.configure(bg=THEME["accent"])
+                lbl.configure(bg=THEME["accent"], fg="white")
+            def _on_leave(ev, frame=f, lbl=l):
+                frame.configure(bg=self.sidebar_color)
+                lbl.configure(bg=self.sidebar_color, fg="#e0f2fe")
+            for w in (f, l):
+                w.bind("<Button-1>", lambda e, t=tab_name: self.show_tab(t))
+                w.bind("<Enter>", _on_enter)
+                w.bind("<Leave>", _on_leave)
+            f.pack(fill='x', padx=6, pady=3)
     
     def show_tab(self, tab_name):
         """Switch between tabs"""
@@ -675,35 +629,34 @@ class SWMS_GUI:
         stats_frame.pack(fill='x', pady=10)
         
         stats = [
-            ("Residents", len(self.system.residents), "#3498DB"),
-            ("Bins", len(self.system.bins), "#27AE60"),
-            ("Tasks", len(self.system.tasks), "#E67E22"),
-            ("Revenue", f"${self.system.get_total_revenue():,.2f}", "#8E44AD")
+            ("Residents", len(self.system.residents), THEME["accent"]),
+            ("Bins", len(self.system.bins), "#0284c7"),
+            ("Tasks", len(self.system.tasks), "#0369a1"),
+            ("Revenue", f"${self.system.get_total_revenue():,.2f}", "#0c4a6e")
         ]
         
         for i, (label, value, color) in enumerate(stats):
-            card = tk.Frame(stats_frame, bg=color, relief=tk.RAISED, bd=2)
-            card.pack(side='left', expand=True, fill='both', padx=5)
+            card = tk.Frame(stats_frame, bg=color, relief=tk.FLAT, bd=0)
+            card.pack(side='left', expand=True, fill='both', padx=6)
             
             tk.Label(
                 card,
                 text=str(value),
-                font=("Arial", 24, "bold"),
+                font=("Helvetica", 26, "bold"),
                 bg=color,
                 fg="white"
-            ).pack(pady=10)
+            ).pack(pady=(16, 4))
             
             tk.Label(
                 card,
                 text=label,
-                font=("Arial", 12),
+                font=THEME["font_body"],
                 bg=color,
                 fg="white"
-            ).pack(pady=(0, 10))
+            ).pack(pady=(0, 16))
         
-        # Charts Frame
-        chart_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
-        chart_frame.pack(fill='both', expand=True, pady=10)
+        chart_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.FLAT)
+        chart_frame.pack(fill='both', expand=True, pady=12)
         
         if HAS_MATPLOTLIB and self.system.incidents:
             statuses = [i.status for i in self.system.incidents]
@@ -716,8 +669,9 @@ class SWMS_GUI:
             tk.Label(
                 chart_frame,
                 text="No data available for charts",
-                font=("Arial", 12),
-                fg="#7F8C8D"
+                font=THEME["font_body"],
+                bg=THEME["card_bg"],
+                fg=THEME["text_secondary"]
             ).pack(expand=True)
     
     def create_resident_tab(self):
@@ -732,25 +686,24 @@ class SWMS_GUI:
         for widget in self.content_frame.winfo_children():
             widget.destroy()
         
-        # Welcome Card
-        welcome_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
-        welcome_frame.pack(fill='x', pady=10, padx=10)
+        welcome_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.FLAT)
+        welcome_frame.pack(fill='x', pady=12, padx=12)
         
         tk.Label(
             welcome_frame,
             text=f"Welcome, {self.current_user.full_name}!",
-            font=("Arial", 18, "bold"),
-            bg="white",
-            fg="#2C3E50"
-        ).pack(pady=15)
+            font=THEME["font_title"],
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
+        ).pack(pady=16)
         
         tk.Label(
             welcome_frame,
-            text=f"Resident ID: {self.current_user.resident_id} | Address: {self.current_user.address}",
-            font=("Arial", 11),
-            bg="white",
-            fg="#7F8C8D"
-        ).pack(pady=(0, 15))
+            text=f"Resident ID: {self.current_user.resident_id} · Address: {self.current_user.address}",
+            font=THEME["font_body"],
+            bg=THEME["card_bg"],
+            fg=THEME["text_secondary"]
+        ).pack(pady=(0, 16))
         
         # Create Notebook for tabs
         notebook = ttk.Notebook(self.content_frame)
@@ -769,7 +722,7 @@ class SWMS_GUI:
     def create_resident_payment_tab(self, parent):
         """Payment tab for resident with Pending Payments"""
         # Pending Payments Section
-        pending_frame = tk.LabelFrame(parent, text="⚠️ Pending Payments", font=("Arial", 12, "bold"), bg="white")
+        pending_frame = tk.LabelFrame(parent, text="⚠️ Pending Payments", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         pending_frame.pack(fill='x', padx=20, pady=10)
         
         self.res_pending_tree = ttk.Treeview(pending_frame, columns=("ID", "Amount", "Service", "Due Date"), show='headings', height=5)
@@ -778,52 +731,30 @@ class SWMS_GUI:
             self.res_pending_tree.column(col, width=150)
         self.res_pending_tree.pack(fill='x', padx=10, pady=10)
         
-        tk.Button(
-            pending_frame,
-            text="💳 Pay Selected",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.resident_pay_pending
-        ).pack(pady=5)
+        make_blue_btn(pending_frame, "  Pay Selected  ", self.resident_pay_pending, "primary").pack(pady=5)
         
         # Payment Form (for new payments)
-        form_frame = tk.LabelFrame(parent, text="Make New Payment", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(parent, text="Make New Payment", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=20, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=20, pady=20)
         
-        tk.Label(input_frame, text="Service Type:", font=("Arial", 11), bg="white").grid(row=0, column=0, padx=10, pady=10, sticky='w')
+        tk.Label(input_frame, text="Service Type:", font=("Arial", 11), bg=THEME["card_bg"]).grid(row=0, column=0, padx=10, pady=10, sticky='w')
         self.res_pay_service = ttk.Combobox(input_frame, values=["Collection", "Recycling", "Penalty", "Extra Pickup"], width=25, state="readonly")
         self.res_pay_service.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
         self.res_pay_service.current(0)
         
-        tk.Label(input_frame, text="Amount ($):", font=("Arial", 11), bg="white").grid(row=1, column=0, padx=10, pady=10, sticky='w')
+        tk.Label(input_frame, text="Amount ($):", font=("Arial", 11), bg=THEME["card_bg"]).grid(row=1, column=0, padx=10, pady=10, sticky='w')
         self.res_pay_amount = tk.Entry(input_frame, font=("Arial", 11), width=27)
         self.res_pay_amount.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
         
         input_frame.columnconfigure(1, weight=1)
         
-        tk.Button(
-            form_frame,
-            text="💳 Process Payment",
-            font=("Arial", 12, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-            cursor="hand2",
-            command=self.resident_process_payment
-        ).pack(pady=15)
+        make_blue_btn(form_frame, "  Process Payment  ", self.resident_process_payment, "primary", THEME["font_button"]).pack(pady=15)
         
         # Payment History (Paid only)
-        history_frame = tk.LabelFrame(parent, text="Payment History (Paid)", font=("Arial", 12, "bold"), bg="white")
+        history_frame = tk.LabelFrame(parent, text="Payment History (Paid)", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         history_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
         self.res_pay_tree = ttk.Treeview(history_frame, columns=("ID", "Amount", "Service", "Date"), show='headings', height=8)
@@ -917,35 +848,24 @@ class SWMS_GUI:
     def create_resident_incident_tab(self, parent):
         """Incident reporting tab for resident"""
         # Report Form
-        form_frame = tk.LabelFrame(parent, text="Report New Incident", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(parent, text="Report New Incident", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=20, pady=20)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=20, pady=20)
         
-        tk.Label(input_frame, text="Description:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(input_frame, text="Description:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.res_inc_desc = tk.Text(input_frame, height=4, width=60, font=("Arial", 10))
         self.res_inc_desc.pack(fill='x', pady=5)
         
-        tk.Label(input_frame, text="Location:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(input_frame, text="Location:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.res_inc_loc = tk.Entry(input_frame, font=("Arial", 11), width=60)
         self.res_inc_loc.pack(fill='x', pady=5)
         
-        tk.Button(
-            form_frame,
-            text="⚠️ Submit Incident",
-            font=("Arial", 12, "bold"),
-            bg=self.warning_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-            cursor="hand2",
-            command=self.resident_submit_incident
-        ).pack(pady=15)
+        make_blue_btn(form_frame, "  Submit Incident  ", self.resident_submit_incident, "primary", THEME["font_button"]).pack(pady=15)
         
         # My Incidents
-        incidents_frame = tk.LabelFrame(parent, text="My Reported Incidents", font=("Arial", 12, "bold"), bg="white")
+        incidents_frame = tk.LabelFrame(parent, text="My Reported Incidents", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         incidents_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
         self.res_inc_tree = ttk.Treeview(incidents_frame, columns=("ID", "Description", "Location", "Date", "Status"), show='headings', height=10)
@@ -998,7 +918,7 @@ class SWMS_GUI:
         dialog = tk.Toplevel(self.root)
         dialog.title("Report Incident")
         dialog.geometry("500x300")
-        dialog.configure(bg="white")
+        dialog.configure(bg=THEME["card_bg"])
         dialog.resizable(False, False)
         
         # Center
@@ -1007,14 +927,14 @@ class SWMS_GUI:
         y = (dialog.winfo_screenheight() // 2) - (300 // 2)
         dialog.geometry(f'500x300+{x}+{y}')
         
-        frame = tk.Frame(dialog, bg="white")
+        frame = tk.Frame(dialog, bg=THEME["card_bg"])
         frame.pack(expand=True, fill='both', padx=30, pady=20)
         
-        tk.Label(frame, text="Description:", font=("Arial", 11, "bold"), bg="white").pack(anchor='w', pady=(0, 5))
+        tk.Label(frame, text="Description:", font=("Arial", 11, "bold"), bg=THEME["card_bg"]).pack(anchor='w', pady=(0, 5))
         desc_entry = tk.Text(frame, height=4, width=50, font=("Arial", 10))
         desc_entry.pack(fill='x', pady=(0, 15))
         
-        tk.Label(frame, text="Location:", font=("Arial", 11, "bold"), bg="white").pack(anchor='w', pady=(0, 5))
+        tk.Label(frame, text="Location:", font=("Arial", 11, "bold"), bg=THEME["card_bg"]).pack(anchor='w', pady=(0, 5))
         loc_entry = tk.Entry(frame, font=("Arial", 10), width=50)
         loc_entry.pack(fill='x', pady=(0, 20))
         
@@ -1043,17 +963,7 @@ class SWMS_GUI:
             messagebox.showinfo("Success", f"Incident {iid} reported successfully!")
             dialog.destroy()
         
-        tk.Button(
-            frame,
-            text="Submit",
-            font=("Arial", 11, "bold"),
-            bg=self.warning_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            command=submit
-        ).pack()
+        make_blue_btn(frame, "Submit", submit, "primary").pack()
     
     # ==================== COLLECTOR VIEW ====================
     def create_collector_dashboard(self):
@@ -1062,24 +972,23 @@ class SWMS_GUI:
         for widget in self.content_frame.winfo_children():
             widget.destroy()
         
-        # Welcome Card
-        welcome_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
-        welcome_frame.pack(fill='x', pady=10, padx=10)
+        welcome_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.FLAT)
+        welcome_frame.pack(fill='x', pady=12, padx=12)
         
         tk.Label(
             welcome_frame,
             text=f"Welcome, {self.current_user.name}!",
-            font=("Arial", 18, "bold"),
-            bg="white",
-            fg="#2C3E50"
-        ).pack(pady=15)
+            font=THEME["font_title"],
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
+        ).pack(pady=16)
         
         tk.Label(
             welcome_frame,
-            text=f"Collector ID: {self.current_user.collector_id} | Vehicle: {self.current_user.vehicle_id}",
-            font=("Arial", 11),
-            bg="white",
-            fg="#7F8C8D"
+            text=f"Collector ID: {self.current_user.collector_id} · Vehicle: {self.current_user.vehicle_id}",
+            font=THEME["font_body"],
+            bg=THEME["card_bg"],
+            fg=THEME["text_secondary"]
         ).pack(pady=(0, 15))
         
         # Create Notebook for tabs
@@ -1099,7 +1008,7 @@ class SWMS_GUI:
     def create_collector_tasks_tab(self, parent):
         """Routes and Tasks tab for collector"""
         # Assigned Routes
-        routes_frame = tk.LabelFrame(parent, text="My Assigned Routes", font=("Arial", 12, "bold"), bg="white")
+        routes_frame = tk.LabelFrame(parent, text="My Assigned Routes", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         routes_frame.pack(fill='both', expand=True, padx=20, pady=10)
         
         self.col_route_tree = ttk.Treeview(routes_frame, columns=("ID", "Zone", "Stops", "Distance", "Duration"), show='headings', height=8)
@@ -1109,7 +1018,7 @@ class SWMS_GUI:
         self.col_route_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
         # Assigned Tasks
-        tasks_frame = tk.LabelFrame(parent, text="My Assigned Tasks", font=("Arial", 12, "bold"), bg="white")
+        tasks_frame = tk.LabelFrame(parent, text="My Assigned Tasks", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         tasks_frame.pack(fill='both', expand=True, padx=20, pady=10)
         
         self.col_task_tree = ttk.Treeview(tasks_frame, columns=("ID", "Description", "Route", "Date", "Status"), show='headings', height=8)
@@ -1161,35 +1070,24 @@ class SWMS_GUI:
     def create_collector_incident_tab(self, parent):
         """Incident reporting tab for collector"""
         # Report Form
-        form_frame = tk.LabelFrame(parent, text="Report New Incident", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(parent, text="Report New Incident", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=20, pady=20)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=20, pady=20)
         
-        tk.Label(input_frame, text="Description:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(input_frame, text="Description:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.col_inc_desc = tk.Text(input_frame, height=4, width=60, font=("Arial", 10))
         self.col_inc_desc.pack(fill='x', pady=5)
         
-        tk.Label(input_frame, text="Location:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(input_frame, text="Location:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.col_inc_loc = tk.Entry(input_frame, font=("Arial", 11), width=60)
         self.col_inc_loc.pack(fill='x', pady=5)
         
-        tk.Button(
-            form_frame,
-            text="⚠️ Submit Incident",
-            font=("Arial", 12, "bold"),
-            bg=self.warning_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-            cursor="hand2",
-            command=self.collector_submit_incident
-        ).pack(pady=15)
+        make_blue_btn(form_frame, "  Submit Incident  ", self.collector_submit_incident, "primary", THEME["font_button"]).pack(pady=15)
         
         # Reported Incidents
-        incidents_frame = tk.LabelFrame(parent, text="Reported Incidents", font=("Arial", 12, "bold"), bg="white")
+        incidents_frame = tk.LabelFrame(parent, text="Reported Incidents", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         incidents_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
         self.col_inc_tree = ttk.Treeview(incidents_frame, columns=("ID", "Description", "Location", "Date", "Status"), show='headings', height=10)
@@ -1247,35 +1145,24 @@ class SWMS_GUI:
         # Don't call show_tab here, just implement directly
         
         # Form Frame
-        form_frame = tk.LabelFrame(self.content_frame, text="Register New Resident", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(self.content_frame, text="Register New Resident", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=10, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=15, pady=15)
         
-        tk.Label(input_frame, text="Name:", font=("Arial", 10), bg="white").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Name:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.ent_res_name = tk.Entry(input_frame, font=("Arial", 10), width=25)
         self.ent_res_name.grid(row=0, column=1, padx=5, pady=5)
         
-        tk.Label(input_frame, text="Address:", font=("Arial", 10), bg="white").grid(row=0, column=2, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Address:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=2, padx=5, pady=5, sticky='w')
         self.ent_res_addr = tk.Entry(input_frame, font=("Arial", 10), width=25)
         self.ent_res_addr.grid(row=0, column=3, padx=5, pady=5)
         
-        tk.Button(
-            input_frame,
-            text="Add Resident",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_resident
-        ).grid(row=0, column=4, padx=10, pady=5)
+        make_blue_btn(input_frame, "Add Resident", self.add_resident, "primary").grid(row=0, column=4, padx=10, pady=5)
         
         # List Frame
-        list_frame = tk.LabelFrame(self.content_frame, text="All Residents", font=("Arial", 12, "bold"), bg="white")
+        list_frame = tk.LabelFrame(self.content_frame, text="All Residents", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         list_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.res_tree = ttk.Treeview(list_frame, columns=("ID", "Name", "Address"), show='headings', height=15)
@@ -1325,45 +1212,34 @@ class SWMS_GUI:
             widget.destroy()
         
         # Form Frame
-        form_frame = tk.LabelFrame(self.content_frame, text="Register New Bin", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(self.content_frame, text="Register New Bin", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=10, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=15, pady=15)
         
-        tk.Label(input_frame, text="Type:", font=("Arial", 10), bg="white").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Type:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.cmb_bin_type = ttk.Combobox(input_frame, values=["General", "Recycle", "Green"], width=15, state="readonly")
         self.cmb_bin_type.grid(row=0, column=1, padx=5, pady=5)
         self.cmb_bin_type.current(0)
         
-        tk.Label(input_frame, text="Capacity (L):", font=("Arial", 10), bg="white").grid(row=0, column=2, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Capacity (L):", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=2, padx=5, pady=5, sticky='w')
         self.ent_bin_cap = tk.Entry(input_frame, font=("Arial", 10), width=15)
         self.ent_bin_cap.grid(row=0, column=3, padx=5, pady=5)
         
-        tk.Label(input_frame, text="Location:", font=("Arial", 10), bg="white").grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Location:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.ent_bin_loc = tk.Entry(input_frame, font=("Arial", 10), width=25)
         self.ent_bin_loc.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
         
-        tk.Label(input_frame, text="Owner:", font=("Arial", 10), bg="white").grid(row=1, column=3, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Owner:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=1, column=3, padx=5, pady=5, sticky='w')
         self.cmb_bin_res = ttk.Combobox(input_frame, width=20, state="readonly")
         self.cmb_bin_res.grid(row=1, column=4, padx=5, pady=5)
         self.update_combos()
         
-        tk.Button(
-            input_frame,
-            text="Add Bin",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_bin
-        ).grid(row=2, column=2, columnspan=2, padx=10, pady=10)
+        make_blue_btn(input_frame, "Add Bin", self.add_bin, "primary").grid(row=2, column=2, columnspan=2, padx=10, pady=10)
         
         # List Frame
-        list_frame = tk.LabelFrame(self.content_frame, text="All Bins", font=("Arial", 12, "bold"), bg="white")
+        list_frame = tk.LabelFrame(self.content_frame, text="All Bins", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         list_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.bin_tree = ttk.Treeview(list_frame, columns=("ID", "Type", "Capacity", "Location", "Owner", "Status"), show='headings', height=15)
@@ -1425,52 +1301,30 @@ class SWMS_GUI:
             widget.destroy()
         
         # Form Frame
-        form_frame = tk.LabelFrame(self.content_frame, text="Add New Collector", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(self.content_frame, text="Add New Collector", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=10, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=15, pady=15)
         
-        tk.Label(input_frame, text="Name:", font=("Arial", 10), bg="white").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Name:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.ent_col_name = tk.Entry(input_frame, font=("Arial", 10), width=25)
         self.ent_col_name.grid(row=0, column=1, padx=5, pady=5)
         
-        tk.Label(input_frame, text="Vehicle ID:", font=("Arial", 10), bg="white").grid(row=0, column=2, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Vehicle ID:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=2, padx=5, pady=5, sticky='w')
         self.ent_col_veh = tk.Entry(input_frame, font=("Arial", 10), width=25)
         self.ent_col_veh.grid(row=0, column=3, padx=5, pady=5)
         
-        tk.Button(
-            input_frame,
-            text="Add Collector",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_collector
-        ).grid(row=0, column=4, padx=10, pady=5)
+        make_blue_btn(input_frame, "Add Collector", self.add_collector, "primary").grid(row=0, column=4, padx=10, pady=5)
         
         # Action Buttons
         btn_frame_col = tk.Frame(self.content_frame, bg=self.bg_color)
         btn_frame_col.pack(fill='x', padx=10, pady=5)
         
-        tk.Button(
-            btn_frame_col,
-            text="🗑️ Delete Selected Collector",
-            font=("Arial", 10, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.delete_selected_collector
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame_col, "  Delete Selected Collector  ", self.delete_selected_collector, "danger").pack(side='left', padx=5)
         
         # List Frame
-        list_frame = tk.LabelFrame(self.content_frame, text="All Collectors", font=("Arial", 12, "bold"), bg="white")
+        list_frame = tk.LabelFrame(self.content_frame, text="All Collectors", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         list_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.col_tree = ttk.Treeview(list_frame, columns=("ID", "Name", "Vehicle"), show='headings', height=15)
@@ -1548,98 +1402,54 @@ class SWMS_GUI:
         main_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         # Left: Routes
-        route_frame = tk.LabelFrame(main_frame, text="Routes", font=("Arial", 12, "bold"), bg="white")
+        route_frame = tk.LabelFrame(main_frame, text="Routes", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         route_frame.pack(side='left', fill='both', expand=True, padx=5)
         
-        route_form = tk.Frame(route_frame, bg="white")
+        route_form = tk.Frame(route_frame, bg=THEME["card_bg"])
         route_form.pack(fill='x', padx=10, pady=10)
         
-        tk.Label(route_form, text="Zone Name:", font=("Arial", 10), bg="white").pack(anchor='w', pady=5)
+        tk.Label(route_form, text="Zone Name:", font=("Arial", 10), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.ent_route_zone = tk.Entry(route_form, font=("Arial", 10), width=30)
         self.ent_route_zone.pack(fill='x', pady=5)
         
-        tk.Button(
-            route_form,
-            text="Create Route",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_route
-        ).pack(pady=10)
+        make_blue_btn(route_form, "Create Route", self.add_route, "primary").pack(pady=10)
         
         # Delete Route Button
-        btn_frame_route = tk.Frame(route_frame, bg="white")
+        btn_frame_route = tk.Frame(route_frame, bg=THEME["card_bg"])
         btn_frame_route.pack(fill='x', padx=10, pady=5)
         
-        tk.Button(
-            btn_frame_route,
-            text="🗑️ Delete Selected Route",
-            font=("Arial", 9, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=10,
-            pady=3,
-            cursor="hand2",
-            command=self.delete_selected_route
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame_route, "  Delete Selected Route  ", self.delete_selected_route, "danger").pack(side='left', padx=5)
         
         self.route_list = tk.Listbox(route_frame, font=("Arial", 10), height=15)
         self.route_list.pack(fill='both', expand=True, padx=10, pady=10)
         self.refresh_routes()
         
         # Right: Tasks
-        task_frame = tk.LabelFrame(main_frame, text="Schedule Task", font=("Arial", 12, "bold"), bg="white")
+        task_frame = tk.LabelFrame(main_frame, text="Schedule Task", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         task_frame.pack(side='right', fill='both', expand=True, padx=5)
         
-        task_form = tk.Frame(task_frame, bg="white")
+        task_form = tk.Frame(task_frame, bg=THEME["card_bg"])
         task_form.pack(fill='x', padx=10, pady=10)
         
-        tk.Label(task_form, text="Description:", font=("Arial", 10), bg="white").pack(anchor='w', pady=5)
+        tk.Label(task_form, text="Description:", font=("Arial", 10), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.ent_task_desc = tk.Entry(task_form, font=("Arial", 10), width=30)
         self.ent_task_desc.pack(fill='x', pady=5)
         
-        tk.Label(task_form, text="Route:", font=("Arial", 10), bg="white").pack(anchor='w', pady=5)
+        tk.Label(task_form, text="Route:", font=("Arial", 10), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.cmb_task_route = ttk.Combobox(task_form, width=27, state="readonly")
         self.cmb_task_route.pack(fill='x', pady=5)
         
-        tk.Label(task_form, text="Collector:", font=("Arial", 10), bg="white").pack(anchor='w', pady=5)
+        tk.Label(task_form, text="Collector:", font=("Arial", 10), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.cmb_task_col = ttk.Combobox(task_form, width=27, state="readonly")
         self.cmb_task_col.pack(fill='x', pady=5)
         
-        tk.Button(
-            task_form,
-            text="Schedule Task",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_task
-        ).pack(pady=10)
+        make_blue_btn(task_form, "Schedule Task", self.add_task, "primary").pack(pady=10)
         
         # Delete Task Button
-        btn_frame_task = tk.Frame(task_frame, bg="white")
+        btn_frame_task = tk.Frame(task_frame, bg=THEME["card_bg"])
         btn_frame_task.pack(fill='x', padx=10, pady=5)
         
-        tk.Button(
-            btn_frame_task,
-            text="🗑️ Delete Selected Task",
-            font=("Arial", 9, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=10,
-            pady=3,
-            cursor="hand2",
-            command=self.delete_selected_task
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame_task, "  Delete Selected Task  ", self.delete_selected_task, "danger").pack(side='left', padx=5)
         
         self.task_tree = ttk.Treeview(task_frame, columns=("ID", "Desc", "Route", "Collector", "Status"), show='headings', height=10)
         for col in ["ID", "Desc", "Route", "Collector", "Status"]:
@@ -1779,40 +1589,29 @@ class SWMS_GUI:
             widget.destroy()
         
         # Form Frame
-        form_frame = tk.LabelFrame(self.content_frame, text="Process Payment", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(self.content_frame, text="Process Payment", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=10, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=15, pady=15)
         
-        tk.Label(input_frame, text="Payer (Resident):", font=("Arial", 10), bg="white").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Payer (Resident):", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.cmb_pay_res = ttk.Combobox(input_frame, width=25, state="readonly")
         self.cmb_pay_res.grid(row=0, column=1, padx=5, pady=5)
         
-        tk.Label(input_frame, text="Amount ($):", font=("Arial", 10), bg="white").grid(row=0, column=2, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Amount ($):", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=0, column=2, padx=5, pady=5, sticky='w')
         self.ent_pay_amt = tk.Entry(input_frame, font=("Arial", 10), width=15)
         self.ent_pay_amt.grid(row=0, column=3, padx=5, pady=5)
         
-        tk.Label(input_frame, text="Service Type:", font=("Arial", 10), bg="white").grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        tk.Label(input_frame, text="Service Type:", font=("Arial", 10), bg=THEME["card_bg"]).grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.cmb_pay_srv = ttk.Combobox(input_frame, values=["Collection", "Recycling", "Penalty"], width=25, state="readonly")
         self.cmb_pay_srv.grid(row=1, column=1, padx=5, pady=5)
         self.cmb_pay_srv.current(0)
         
-        tk.Button(
-            input_frame,
-            text="Process Payment",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.process_payment
-        ).grid(row=1, column=2, columnspan=2, padx=10, pady=5)
+        make_blue_btn(input_frame, "Process Payment", self.process_payment, "primary").grid(row=1, column=2, columnspan=2, padx=10, pady=5)
         
         # List Frame
-        list_frame = tk.LabelFrame(self.content_frame, text="All Transactions", font=("Arial", 12, "bold"), bg="white")
+        list_frame = tk.LabelFrame(self.content_frame, text="All Transactions", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         list_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.pay_tree = ttk.Treeview(list_frame, columns=("ID", "Payer", "Amount", "Service", "Date"), show='headings', height=15)
@@ -1870,35 +1669,24 @@ class SWMS_GUI:
             widget.destroy()
         
         # Form Frame
-        form_frame = tk.LabelFrame(self.content_frame, text="Report New Incident", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(self.content_frame, text="Report New Incident", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=10, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=15, pady=15)
         
-        tk.Label(input_frame, text="Description:", font=("Arial", 10), bg="white").pack(anchor='w', pady=5)
+        tk.Label(input_frame, text="Description:", font=("Arial", 10), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.ent_inc_desc = tk.Text(input_frame, height=3, width=60, font=("Arial", 10))
         self.ent_inc_desc.pack(fill='x', pady=5)
         
-        tk.Label(input_frame, text="Location:", font=("Arial", 10), bg="white").pack(anchor='w', pady=5)
+        tk.Label(input_frame, text="Location:", font=("Arial", 10), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         self.ent_inc_loc = tk.Entry(input_frame, font=("Arial", 10), width=60)
         self.ent_inc_loc.pack(fill='x', pady=5)
         
-        tk.Button(
-            input_frame,
-            text="Log Incident",
-            font=("Arial", 10, "bold"),
-            bg=self.warning_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_incident
-        ).pack(pady=10)
+        make_blue_btn(input_frame, "Log Incident", self.add_incident, "primary").pack(pady=10)
         
         # List Frame
-        list_frame = tk.LabelFrame(self.content_frame, text="All Incidents", font=("Arial", 12, "bold"), bg="white")
+        list_frame = tk.LabelFrame(self.content_frame, text="All Incidents", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         list_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.inc_tree = ttk.Treeview(list_frame, columns=("ID", "Description", "Location", "Date", "Status"), show='headings', height=15)
@@ -1908,20 +1696,9 @@ class SWMS_GUI:
         self.inc_tree.pack(fill='both', expand=True, padx=10, pady=10)
         
         # Add resolve button
-        btn_frame = tk.Frame(list_frame, bg="white")
+        btn_frame = tk.Frame(list_frame, bg=THEME["card_bg"])
         btn_frame.pack(fill='x', padx=10, pady=5)
-        tk.Button(
-            btn_frame,
-            text="Resolve Selected",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.resolve_incident
-        ).pack(side='left')
+        make_blue_btn(btn_frame, "  Resolve Selected  ", self.resolve_incident, "primary").pack(side='left')
         
         self.refresh_incidents()
     
@@ -1996,36 +1773,25 @@ class SWMS_GUI:
             widget.destroy()
         
         # Title
-        title_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
+        title_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.RAISED, bd=2)
         title_frame.pack(fill='x', padx=10, pady=10)
         
         tk.Label(
             title_frame,
             text="🗑️ Bins Locations",
             font=("Arial", 16, "bold"),
-            bg="white",
-            fg="#2C3E50"
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
         ).pack(pady=15)
         
         # Action Buttons
         btn_frame = tk.Frame(self.content_frame, bg=self.bg_color)
         btn_frame.pack(fill='x', padx=10, pady=5)
         
-        tk.Button(
-            btn_frame,
-            text="🗑️ Delete Selected Bin",
-            font=("Arial", 10, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=lambda: self.delete_selected_bin()
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Delete Selected Bin  ", lambda: self.delete_selected_bin(), "danger").pack(side='left', padx=5)
         
         # Bins List
-        bins_frame = tk.LabelFrame(self.content_frame, text="All Bins", font=("Arial", 12, "bold"), bg="white")
+        bins_frame = tk.LabelFrame(self.content_frame, text="All Bins", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         bins_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.mgt_bins_tree = ttk.Treeview(bins_frame, columns=("ID", "Type", "Capacity", "Location", "Owner", "Status"), show='headings', height=20)
@@ -2071,50 +1837,27 @@ class SWMS_GUI:
             widget.destroy()
         
         # Title
-        title_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
+        title_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.RAISED, bd=2)
         title_frame.pack(fill='x', padx=10, pady=10)
         
         tk.Label(
             title_frame,
             text="⚠️ Recorded Incidents",
             font=("Arial", 16, "bold"),
-            bg="white",
-            fg="#2C3E50"
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
         ).pack(pady=15)
         
         # Incidents List
-        incidents_frame = tk.LabelFrame(self.content_frame, text="All Incidents", font=("Arial", 12, "bold"), bg="white")
+        incidents_frame = tk.LabelFrame(self.content_frame, text="All Incidents", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         incidents_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         # Action buttons
-        btn_frame = tk.Frame(incidents_frame, bg="white")
+        btn_frame = tk.Frame(incidents_frame, bg=THEME["card_bg"])
         btn_frame.pack(fill='x', padx=10, pady=10)
         
-        tk.Button(
-            btn_frame,
-            text="✅ Resolve Selected",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.resolve_selected_incident
-        ).pack(side='left', padx=5)
-        
-        tk.Button(
-            btn_frame,
-            text="🗑️ Delete Selected",
-            font=("Arial", 10, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.delete_selected_incident
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Resolve Selected  ", self.resolve_selected_incident, "primary").pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Delete Selected  ", self.delete_selected_incident, "danger").pack(side='left', padx=5)
         
         self.mgt_inc_tree = ttk.Treeview(incidents_frame, columns=("ID", "Description", "Location", "Date", "Status"), show='headings', height=20)
         for col in ["ID", "Description", "Location", "Date", "Status"]:
@@ -2173,62 +1916,27 @@ class SWMS_GUI:
             widget.destroy()
         
         # Title
-        title_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
+        title_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.RAISED, bd=2)
         title_frame.pack(fill='x', padx=10, pady=10)
         
         tk.Label(
             title_frame,
             text="👥 Customers (Residents)",
             font=("Arial", 16, "bold"),
-            bg="white",
-            fg="#2C3E50"
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
         ).pack(pady=15)
         
         # Action Buttons
         btn_frame = tk.Frame(self.content_frame, bg=self.bg_color)
         btn_frame.pack(fill='x', padx=10, pady=5)
         
-        tk.Button(
-            btn_frame,
-            text="✏️ Edit Selected",
-            font=("Arial", 10, "bold"),
-            bg=self.accent_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.edit_selected_customer
-        ).pack(side='left', padx=5)
-        
-        tk.Button(
-            btn_frame,
-            text="➕ Add New Customer",
-            font=("Arial", 10, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.add_new_customer
-        ).pack(side='left', padx=5)
-        
-        tk.Button(
-            btn_frame,
-            text="🗑️ Delete Selected",
-            font=("Arial", 10, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.delete_selected_customer
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Edit Selected  ", self.edit_selected_customer, "primary").pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Add New Customer  ", self.add_new_customer, "primary").pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Delete Selected  ", self.delete_selected_customer, "danger").pack(side='left', padx=5)
         
         # Customers List
-        customers_frame = tk.LabelFrame(self.content_frame, text="All Customers", font=("Arial", 12, "bold"), bg="white")
+        customers_frame = tk.LabelFrame(self.content_frame, text="All Customers", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         customers_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.mgt_customers_tree = ttk.Treeview(customers_frame, columns=("ID", "Name", "Address", "Bins Count"), show='headings', height=20)
@@ -2268,7 +1976,7 @@ class SWMS_GUI:
         dialog = tk.Toplevel(self.root)
         dialog.title("Edit Customer")
         dialog.geometry("500x350")
-        dialog.configure(bg="white")
+        dialog.configure(bg=THEME["card_bg"])
         dialog.resizable(False, False)
         
         # Center
@@ -2277,30 +1985,30 @@ class SWMS_GUI:
         y = (dialog.winfo_screenheight() // 2) - (350 // 2)
         dialog.geometry(f'500x350+{x}+{y}')
         
-        frame = tk.Frame(dialog, bg="white")
+        frame = tk.Frame(dialog, bg=THEME["card_bg"])
         frame.pack(expand=True, fill='both', padx=30, pady=20)
         
         tk.Label(
             frame,
             text="Edit Customer Information",
             font=("Arial", 16, "bold"),
-            bg="white",
-            fg="#2C3E50"
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
         ).pack(pady=(0, 20))
         
         # Resident ID (read-only)
-        tk.Label(frame, text="Resident ID:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(frame, text="Resident ID:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         id_label = tk.Label(frame, text=resident.resident_id, font=("Arial", 11), bg="#ECF0F1", relief=tk.SUNKEN, anchor='w', padx=10, pady=5)
         id_label.pack(fill='x', pady=(0, 15))
         
         # Name
-        tk.Label(frame, text="Full Name:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(frame, text="Full Name:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         name_entry = tk.Entry(frame, font=("Arial", 11), width=50)
         name_entry.insert(0, resident.full_name)
         name_entry.pack(fill='x', pady=(0, 15))
         
         # Address
-        tk.Label(frame, text="Address:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(frame, text="Address:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         address_entry = tk.Entry(frame, font=("Arial", 11), width=50)
         address_entry.insert(0, resident.address)
         address_entry.pack(fill='x', pady=(0, 20))
@@ -2334,41 +2042,18 @@ class SWMS_GUI:
             messagebox.showinfo("Success", f"Customer {resident.resident_id} updated successfully!")
             dialog.destroy()
         
-        btn_frame = tk.Frame(frame, bg="white")
+        btn_frame = tk.Frame(frame, bg=THEME["card_bg"])
         btn_frame.pack(fill='x', pady=10)
         
-        tk.Button(
-            btn_frame,
-            text="💾 Save Changes",
-            font=("Arial", 11, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-            command=save_changes
-        ).pack(side='left', padx=5)
-        
-        tk.Button(
-            btn_frame,
-            text="❌ Cancel",
-            font=("Arial", 11),
-            bg="#95A5A6",
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-            command=dialog.destroy
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Save Changes  ", save_changes, "primary").pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Cancel  ", dialog.destroy, "secondary").pack(side='left', padx=5)
     
     def add_new_customer(self):
         """Add new customer"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Add New Customer")
         dialog.geometry("500x300")
-        dialog.configure(bg="white")
+        dialog.configure(bg=THEME["card_bg"])
         dialog.resizable(False, False)
         
         # Center
@@ -2377,25 +2062,25 @@ class SWMS_GUI:
         y = (dialog.winfo_screenheight() // 2) - (300 // 2)
         dialog.geometry(f'500x300+{x}+{y}')
         
-        frame = tk.Frame(dialog, bg="white")
+        frame = tk.Frame(dialog, bg=THEME["card_bg"])
         frame.pack(expand=True, fill='both', padx=30, pady=20)
         
         tk.Label(
             frame,
             text="Add New Customer",
             font=("Arial", 16, "bold"),
-            bg="white",
-            fg="#2C3E50"
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
         ).pack(pady=(0, 20))
         
         # Name
-        tk.Label(frame, text="Full Name:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(frame, text="Full Name:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         name_entry = tk.Entry(frame, font=("Arial", 11), width=50)
         name_entry.pack(fill='x', pady=(0, 15))
         name_entry.focus()
         
         # Address
-        tk.Label(frame, text="Address:", font=("Arial", 11), bg="white").pack(anchor='w', pady=5)
+        tk.Label(frame, text="Address:", font=("Arial", 11), bg=THEME["card_bg"]).pack(anchor='w', pady=5)
         address_entry = tk.Entry(frame, font=("Arial", 11), width=50)
         address_entry.pack(fill='x', pady=(0, 20))
         
@@ -2429,34 +2114,11 @@ class SWMS_GUI:
             messagebox.showinfo("Success", f"Customer {rid} added successfully!")
             dialog.destroy()
         
-        btn_frame = tk.Frame(frame, bg="white")
+        btn_frame = tk.Frame(frame, bg=THEME["card_bg"])
         btn_frame.pack(fill='x', pady=10)
         
-        tk.Button(
-            btn_frame,
-            text="➕ Add Customer",
-            font=("Arial", 11, "bold"),
-            bg=self.success_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-            command=save_new
-        ).pack(side='left', padx=5)
-        
-        tk.Button(
-            btn_frame,
-            text="❌ Cancel",
-            font=("Arial", 11),
-            bg="#95A5A6",
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-            command=dialog.destroy
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Add Customer  ", save_new, "primary").pack(side='left', padx=5)
+        make_blue_btn(btn_frame, "  Cancel  ", dialog.destroy, "secondary").pack(side='left', padx=5)
         
         # Bind Enter key
         name_entry.bind('<Return>', lambda e: address_entry.focus())
@@ -2494,71 +2156,49 @@ class SWMS_GUI:
             widget.destroy()
         
         # Title
-        title_frame = tk.Frame(self.content_frame, bg="white", relief=tk.RAISED, bd=2)
+        title_frame = tk.Frame(self.content_frame, bg=THEME["card_bg"], relief=tk.RAISED, bd=2)
         title_frame.pack(fill='x', padx=10, pady=10)
         
         tk.Label(
             title_frame,
             text="💰 Set Customer Payment",
             font=("Arial", 16, "bold"),
-            bg="white",
-            fg="#2C3E50"
+            bg=THEME["card_bg"],
+            fg=THEME["text_primary"]
         ).pack(pady=15)
         
         # Payment Form
-        form_frame = tk.LabelFrame(self.content_frame, text="Process Payment for Customer", font=("Arial", 12, "bold"), bg="white")
+        form_frame = tk.LabelFrame(self.content_frame, text="Process Payment for Customer", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         form_frame.pack(fill='x', padx=10, pady=10)
         
-        input_frame = tk.Frame(form_frame, bg="white")
+        input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
         input_frame.pack(fill='x', padx=20, pady=20)
         
-        tk.Label(input_frame, text="Customer:", font=("Arial", 11), bg="white").grid(row=0, column=0, padx=10, pady=10, sticky='w')
+        tk.Label(input_frame, text="Customer:", font=("Arial", 11), bg=THEME["card_bg"]).grid(row=0, column=0, padx=10, pady=10, sticky='w')
         self.mgt_pay_customer = ttk.Combobox(input_frame, width=30, state="readonly")
         self.mgt_pay_customer.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
         
-        tk.Label(input_frame, text="Service Type:", font=("Arial", 11), bg="white").grid(row=1, column=0, padx=10, pady=10, sticky='w')
+        tk.Label(input_frame, text="Service Type:", font=("Arial", 11), bg=THEME["card_bg"]).grid(row=1, column=0, padx=10, pady=10, sticky='w')
         self.mgt_pay_service = ttk.Combobox(input_frame, values=["Collection", "Recycling", "Penalty", "Extra Pickup"], width=30, state="readonly")
         self.mgt_pay_service.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
         self.mgt_pay_service.current(0)
         
-        tk.Label(input_frame, text="Amount ($):", font=("Arial", 11), bg="white").grid(row=2, column=0, padx=10, pady=10, sticky='w')
+        tk.Label(input_frame, text="Amount ($):", font=("Arial", 11), bg=THEME["card_bg"]).grid(row=2, column=0, padx=10, pady=10, sticky='w')
         self.mgt_pay_amount = tk.Entry(input_frame, font=("Arial", 11), width=32)
         self.mgt_pay_amount.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
         
         input_frame.columnconfigure(1, weight=1)
         
-        tk.Button(
-            form_frame,
-            text="📋 Create Pending Payment",
-            font=("Arial", 12, "bold"),
-            bg="#F39C12",
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-            cursor="hand2",
-            command=self.mgt_create_pending_payment
-        ).pack(pady=15)
+        make_blue_btn(form_frame, "  Create Pending Payment  ", self.mgt_create_pending_payment, "primary", THEME["font_button"]).pack(pady=15)
         
         # Action Buttons
         btn_frame_pay = tk.Frame(self.content_frame, bg=self.bg_color)
         btn_frame_pay.pack(fill='x', padx=10, pady=5)
         
-        tk.Button(
-            btn_frame_pay,
-            text="🗑️ Delete Selected Payment",
-            font=("Arial", 10, "bold"),
-            bg=self.danger_color,
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            pady=5,
-            cursor="hand2",
-            command=self.delete_selected_payment
-        ).pack(side='left', padx=5)
+        make_blue_btn(btn_frame_pay, "  Delete Selected Payment  ", self.delete_selected_payment, "danger").pack(side='left', padx=5)
         
         # Payment History
-        history_frame = tk.LabelFrame(self.content_frame, text="All Payments", font=("Arial", 12, "bold"), bg="white")
+        history_frame = tk.LabelFrame(self.content_frame, text="All Payments", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
         history_frame.pack(fill='both', expand=True, padx=10, pady=10)
         
         self.mgt_pay_tree = ttk.Treeview(history_frame, columns=("ID", "Customer", "Amount", "Service", "Status", "Date"), show='headings', height=15)
