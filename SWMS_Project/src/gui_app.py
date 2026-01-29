@@ -461,7 +461,7 @@ class SWMS_GUI:
         self.root.state('zoomed' if hasattr(self.root, 'state') else 'normal')
         
         # Blue theme (match login page)
-        self.bg_color = "#f0f9ff"   # sky-50
+        self.bg_color = "#e0f2fe"   # sky-100 - clearly blue, no grey border
         self.sidebar_color = "#0c4a6e"  # sky-900
         self.accent_color = THEME["accent"]
         self.success_color = THEME["accent"]   # blue for add/save
@@ -470,12 +470,14 @@ class SWMS_GUI:
         
         self.root.configure(bg=self.bg_color)
         
-        # Modern ttk style (Notebook, Treeview)
+        # Modern ttk style (Notebook, Treeview) - blue so no grey border
         try:
             style = ttk.Style()
             style.theme_use("clam")
             style.configure("TNotebook", background=self.bg_color)
-            style.configure("TNotebook.Tab", padding=[16, 10], font=THEME["font_body"])
+            style.configure("TNotebook.Tab", padding=[16, 10], font=THEME["font_body"], background=self.bg_color)
+            style.map("TNotebook.Tab", background=[("selected", "#0EA5E9")], foreground=[("selected", "white")])
+            style.configure("TFrame", background=self.bg_color)
             style.configure("Treeview", background=THEME["card_bg"], fieldbackground=THEME["card_bg"], foreground=THEME["text_primary"], rowheight=28)
             style.configure("Treeview.Heading", background="#0c4a6e", foreground="white", font=THEME["font_small"])
         except Exception:
@@ -721,8 +723,8 @@ class SWMS_GUI:
     
     def create_resident_payment_tab(self, parent):
         """Payment tab for resident with Pending Payments"""
-        # Pending Payments Section
-        pending_frame = tk.LabelFrame(parent, text="⚠️ Pending Payments", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
+        # Pending Payments Section (blue border)
+        pending_frame = tk.LabelFrame(parent, text="  Pending Payments  ", font=("Arial", 12, "bold"), bg=THEME["card_bg"], fg="#0369a1", highlightbackground="#0EA5E9", highlightcolor="#0284c7", highlightthickness=1)
         pending_frame.pack(fill='x', padx=20, pady=10)
         
         self.res_pending_tree = ttk.Treeview(pending_frame, columns=("ID", "Amount", "Service", "Due Date"), show='headings', height=5)
@@ -733,8 +735,8 @@ class SWMS_GUI:
         
         make_blue_btn(pending_frame, "  Pay Selected  ", self.resident_pay_pending, "primary").pack(pady=5)
         
-        # Payment Form (for new payments)
-        form_frame = tk.LabelFrame(parent, text="Make New Payment", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
+        # Payment Form (for new payments) (blue border)
+        form_frame = tk.LabelFrame(parent, text="  Make New Payment  ", font=("Arial", 12, "bold"), bg=THEME["card_bg"], fg="#0369a1", highlightbackground="#0EA5E9", highlightcolor="#0284c7", highlightthickness=1)
         form_frame.pack(fill='x', padx=20, pady=10)
         
         input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
@@ -753,8 +755,8 @@ class SWMS_GUI:
         
         make_blue_btn(form_frame, "  Process Payment  ", self.resident_process_payment, "primary", THEME["font_button"]).pack(pady=15)
         
-        # Payment History (Paid only)
-        history_frame = tk.LabelFrame(parent, text="Payment History (Paid)", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
+        # Payment History (Paid only) (blue border)
+        history_frame = tk.LabelFrame(parent, text="  Payment History (Paid)  ", font=("Arial", 12, "bold"), bg=THEME["card_bg"], fg="#0369a1", highlightbackground="#0EA5E9", highlightcolor="#0284c7", highlightthickness=1)
         history_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
         self.res_pay_tree = ttk.Treeview(history_frame, columns=("ID", "Amount", "Service", "Date"), show='headings', height=8)
@@ -847,8 +849,8 @@ class SWMS_GUI:
     
     def create_resident_incident_tab(self, parent):
         """Incident reporting tab for resident"""
-        # Report Form
-        form_frame = tk.LabelFrame(parent, text="Report New Incident", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
+        # Report Form (blue border)
+        form_frame = tk.LabelFrame(parent, text="  Report New Incident  ", font=("Arial", 12, "bold"), bg=THEME["card_bg"], fg="#0369a1", highlightbackground="#0EA5E9", highlightcolor="#0284c7", highlightthickness=1)
         form_frame.pack(fill='x', padx=20, pady=20)
         
         input_frame = tk.Frame(form_frame, bg=THEME["card_bg"])
@@ -864,8 +866,8 @@ class SWMS_GUI:
         
         make_blue_btn(form_frame, "  Submit Incident  ", self.resident_submit_incident, "primary", THEME["font_button"]).pack(pady=15)
         
-        # My Incidents
-        incidents_frame = tk.LabelFrame(parent, text="My Reported Incidents", font=("Arial", 12, "bold"), bg=THEME["card_bg"])
+        # My Incidents (blue border)
+        incidents_frame = tk.LabelFrame(parent, text="  My Reported Incidents  ", font=("Arial", 12, "bold"), bg=THEME["card_bg"], fg="#0369a1", highlightbackground="#0EA5E9", highlightcolor="#0284c7", highlightthickness=1)
         incidents_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
         self.res_inc_tree = ttk.Treeview(incidents_frame, columns=("ID", "Description", "Location", "Date", "Status"), show='headings', height=10)
