@@ -2,7 +2,6 @@
 
 import sys
 import os
-import tkinter as tk
 
 # 'src' folder ko system path mein daal rahe hain
 # Is se Python ko pata chal jayega ke files kahan hain
@@ -12,7 +11,6 @@ sys.path.append(src_path)
 
 # Ab hum direct import kar sakte hain (bina src. lagaye)
 from cli_main import main as run_cli
-from gui_app import main as run_gui
 
 def main():
     print("=============================================")
@@ -26,7 +24,16 @@ def main():
     if choice == '1':
         run_cli()
     elif choice == '2':
-        run_gui()  # This will show login window
+        # Only import GUI when user chooses it (gui_app uses tkinter)
+        try:
+            from gui_app import main as run_gui
+            run_gui()  # This will show login window
+        except ImportError as e:
+            print(f"\nError: GUI mode is not available.")
+            print(f"Reason: {e}")
+            print("\nInstall tkinter support for Python, or use Text Mode (option 1).")
+            print("Falling back to Text Mode...")
+            run_cli()
     else:
         print("Invalid choice.")
 

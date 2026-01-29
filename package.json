@@ -1,0 +1,8 @@
+{
+  "name": "assignment-aus",
+  "version": "1.0.0",
+  "description": "Smart Waste Management System",
+  "scripts": {
+    "start": "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 SWMS_Project/run.py"
+  }
+}
